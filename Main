@@ -2,22 +2,18 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 
-class WeeklyHighProbabilityAnalyzer:
+class WeeklyHighLowProbabilityAnalyzer:
     def __init__(self, symbol="EURUSD=X", period="5y"):
-        """
-        Initialize the analyzer
-        
-        Args:
-            symbol (str): Yahoo Finance symbol for EUR/USD
-            period (str): Period for historical data (1y, 2y, 5y, 10y, max)
-        """
         self.symbol = symbol
         self.period = period
         self.data = None
         self.weekly_data = None
-        self.results = None
+        self.high_results = None
+        self.low_results = None
         
     def fetch_data(self):
         """Fetch historical EUR/USD data from Yahoo Finance"""
@@ -37,7 +33,7 @@ class WeeklyHighProbabilityAnalyzer:
             return False
     
     def prepare_weekly_data(self):
-        """Group data by week and identify which day created the weekly high"""
+        """Group data by week and identify which day created the weekly high and low"""
         if self.data is None:
             print("No data available. Please fetch data first.")
             return False
@@ -49,121 +45,204 @@ class WeeklyHighProbabilityAnalyzer:
         # Add week number for grouping
         self.data['YearWeek'] = self.data.index.strftime('%Y-%U')
         
-        weekly_highs = []
+        weekly_data = []
         
         for week, group in self.data.groupby('YearWeek'):
             if len(group) >= 3:  # Only consider weeks with at least 3 trading days
+                # Weekly High
                 max_high_idx = group['High'].idxmax()
                 max_high_day = group.loc[max_high_idx]
                 
-                weekly_highs.append({
+                # Weekly Low
+                min_low_idx = group['Low'].idxmin()
+                min_low_day = group.loc[min_low_idx]
+                
+                weekly_data.append({
                     'Week': week,
                     'HighDate': max_high_idx.date(),
-                    'DayOfWeek': max_high_day['DayOfWeek'],
-                    'DayName': max_high_day['DayName'],
+                    'HighDayOfWeek': max_high_day['DayOfWeek'],
+                    'HighDayName': max_high_day['DayName'],
                     'High': max_high_day['High'],
+                    'LowDate': min_low_idx.date(),
+                    'LowDayOfWeek': min_low_day['DayOfWeek'],
+                    'LowDayName': min_low_day['DayName'],
+                    'Low': min_low_day['Low'],
                     'TradingDaysInWeek': len(group)
                 })
         
-        self.weekly_data = pd.DataFrame(weekly_highs)
+        self.weekly_data = pd.DataFrame(weekly_data)
         print(f"Analyzed {len(self.weekly_data)} weeks of data")
         return True
     
     def calculate_probabilities(self):
-        """Calculate the probability of each day creating the weekly high"""
+        """Calculate the probability of each day creating the weekly high and low"""
         if self.weekly_data is None:
             print("Weekly data not prepared. Please run prepare_weekly_data() first.")
             return False
             
-        # Count occurrences of each day
-        day_counts = self.weekly_data['DayName'].value_counts()
+        # Calculate probabilities for highs
+        high_day_counts = self.weekly_data['HighDayName'].value_counts()
         total_weeks = len(self.weekly_data)
+        high_probabilities = (high_day_counts / total_weeks * 100).round(2)
         
-        # Calculate probabilities
-        probabilities = (day_counts / total_weeks * 100).round(2)
+        # Calculate probabilities for lows
+        low_day_counts = self.weekly_data['LowDayName'].value_counts()
+        low_probabilities = (low_day_counts / total_weeks * 100).round(2)
         
         # Create ordered results (Monday to Friday)
         day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
-        self.results = pd.DataFrame({
+        
+        self.high_results = pd.DataFrame({
             'Day': day_order,
-            'Count': [day_counts.get(day, 0) for day in day_order],
-            'Probability (%)': [probabilities.get(day, 0) for day in day_order]
+            'Count': [high_day_counts.get(day, 0) for day in day_order],
+            'Probability (%)': [high_probabilities.get(day, 0) for day in day_order]
+        })
+        
+        self.low_results = pd.DataFrame({
+            'Day': day_order,
+            'Count': [low_day_counts.get(day, 0) for day in day_order],
+            'Probability (%)': [low_probabilities.get(day, 0) for day in day_order]
         })
         
         return True
     
     def display_results(self):
-        """Display the probability results"""
-        if self.results is None:
+        """Display the probability results for both highs and lows"""
+        if self.high_results is None or self.low_results is None:
             print("Results not calculated. Please run calculate_probabilities() first.")
             return
             
-        print("\n" + "="*50)
-        print("EUR/USD WEEKLY HIGH PROBABILITY ANALYSIS")
-        print("="*50)
+        print("\n" + "="*60)
+        print("EUR/USD WEEKLY HIGH/LOW PROBABILITY ANALYSIS")
+        print("="*60)
         print(f"Analysis Period: {self.data.index[0].date()} to {self.data.index[-1].date()}")
         print(f"Total Weeks Analyzed: {len(self.weekly_data)}")
         print(f"Data Source: Yahoo Finance ({self.symbol})")
-        print("\nProbability of Each Day Creating Weekly High:")
-        print("-"*50)
         
-        for _, row in self.results.iterrows():
+        # Display High Results
+        print("\nProbability of Each Day Creating Weekly HIGH:")
+        print("-"*60)
+        for _, row in self.high_results.iterrows():
             print(f"{row['Day']:10} | {row['Count']:3d} times | {row['Probability (%)']:6.2f}%")
         
-        print("-"*50)
+        print("-"*60)
         
-        # Additional statistics
-        highest_prob_day = self.results.loc[self.results['Probability (%)'].idxmax(), 'Day']
-        lowest_prob_day = self.results.loc[self.results['Probability (%)'].idxmin(), 'Day']
+        # Display Low Results
+        print("\nProbability of Each Day Creating Weekly LOW:")
+        print("-"*60)
+        for _, row in self.low_results.iterrows():
+            print(f"{row['Day']:10} | {row['Count']:3d} times | {row['Probability (%)']:6.2f}%")
+        
+        print("-"*60)
+        
+        # Additional statistics for highs
+        highest_prob_high_day = self.high_results.loc[self.high_results['Probability (%)'].idxmax(), 'Day']
+        lowest_prob_high_day = self.high_results.loc[self.high_results['Probability (%)'].idxmin(), 'Day']
+        
+        # Additional statistics for lows
+        highest_prob_low_day = self.low_results.loc[self.low_results['Probability (%)'].idxmax(), 'Day']
+        lowest_prob_low_day = self.low_results.loc[self.low_results['Probability (%)'].idxmin(), 'Day']
         
         print(f"\nKey Insights:")
-        print(f"• Most likely day for weekly high: {highest_prob_day} ({self.results.loc[self.results['Day'] == highest_prob_day, 'Probability (%)'].iloc[0]}%)")
-        print(f"• Least likely day for weekly high: {lowest_prob_day} ({self.results.loc[self.results['Day'] == lowest_prob_day, 'Probability (%)'].iloc[0]}%)")
+        print(f"WEEKLY HIGHS:")
+        print(f"• Most likely day: {highest_prob_high_day} ({self.high_results.loc[self.high_results['Day'] == highest_prob_high_day, 'Probability (%)'].iloc[0]}%)")
+        print(f"• Least likely day: {lowest_prob_high_day} ({self.high_results.loc[self.high_results['Day'] == lowest_prob_high_day, 'Probability (%)'].iloc[0]}%)")
+        print(f"\nWEEKLY LOWS:")
+        print(f"• Most likely day: {highest_prob_low_day} ({self.low_results.loc[self.low_results['Day'] == highest_prob_low_day, 'Probability (%)'].iloc[0]}%)")
+        print(f"• Least likely day: {lowest_prob_low_day} ({self.low_results.loc[self.low_results['Day'] == lowest_prob_low_day, 'Probability (%)'].iloc[0]}%)")
+        
+        # Trading insights
+        print(f"\nTRADING INSIGHTS:")
+        if highest_prob_high_day == highest_prob_low_day:
+            print(f"• {highest_prob_high_day} shows high volatility (creates both highs and lows frequently)")
+        else:
+            print(f"• {highest_prob_high_day} tends to be bullish (creates weekly highs)")
+            print(f"• {highest_prob_low_day} tends to be bearish (creates weekly lows)")
         
     def plot_results(self):
-        """Create visualizations of the results"""
-        if self.results is None:
+        """Create visualizations of the results for both highs and lows"""
+        if self.high_results is None or self.low_results is None:
             print("Results not calculated. Please run calculate_probabilities() first.")
             return
             
-        plt.style.use('default')  # Use default style instead of seaborn
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-        
-        # Bar chart
-        bars = ax1.bar(self.results['Day'], self.results['Probability (%)'], 
-                      color='steelblue', alpha=0.7, edgecolor='navy')
-        ax1.set_title('Probability of Each Day Creating EUR/USD Weekly High', 
-                     fontsize=14, fontweight='bold')
-        ax1.set_ylabel('Probability (%)', fontsize=12)
-        ax1.set_xlabel('Day of Week', fontsize=12)
-        ax1.grid(True, alpha=0.3)
-        
-        # Add value labels on bars
-        for bar in bars:
-            height = bar.get_height()
-            ax1.text(bar.get_x() + bar.get_width()/2., height + 0.5,
-                    f'{height:.1f}%', ha='center', va='bottom', fontweight='bold')
-        
-        # Pie chart
-        ax2.pie(self.results['Probability (%)'], labels=self.results['Day'], 
-               autopct='%1.1f%%', startangle=90, colors=plt.cm.Set3.colors)
-        ax2.set_title('Distribution of Weekly Highs by Day', 
-                     fontsize=14, fontweight='bold')
-        
-        plt.tight_layout()
-        plt.show()
+        try:
+            plt.style.use('default')
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+            
+            # HIGH PROBABILITY BAR CHART
+            bars1 = ax1.bar(self.high_results['Day'], self.high_results['Probability (%)'], 
+                           color='steelblue', alpha=0.7, edgecolor='navy')
+            ax1.set_title('Probability of Each Day Creating EUR/USD Weekly HIGH', 
+                         fontsize=12, fontweight='bold')
+            ax1.set_ylabel('Probability (%)', fontsize=10)
+            ax1.set_xlabel('Day of Week', fontsize=10)
+            ax1.grid(True, alpha=0.3)
+            ax1.tick_params(axis='x', rotation=45)
+            
+            # Add value labels on bars
+            for bar in bars1:
+                height = bar.get_height()
+                ax1.text(bar.get_x() + bar.get_width()/2., height + 0.5,
+                        f'{height:.1f}%', ha='center', va='bottom', fontweight='bold', fontsize=9)
+            
+            # HIGH PROBABILITY PIE CHART
+            colors_high = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+            ax2.pie(self.high_results['Probability (%)'], labels=self.high_results['Day'], 
+                   autopct='%1.1f%%', startangle=90, colors=colors_high)
+            ax2.set_title('Distribution of Weekly HIGHS by Day', 
+                         fontsize=12, fontweight='bold')
+            
+            # LOW PROBABILITY BAR CHART
+            bars3 = ax3.bar(self.low_results['Day'], self.low_results['Probability (%)'], 
+                           color='crimson', alpha=0.7, edgecolor='darkred')
+            ax3.set_title('Probability of Each Day Creating EUR/USD Weekly LOW', 
+                         fontsize=12, fontweight='bold')
+            ax3.set_ylabel('Probability (%)', fontsize=10)
+            ax3.set_xlabel('Day of Week', fontsize=10)
+            ax3.grid(True, alpha=0.3)
+            ax3.tick_params(axis='x', rotation=45)
+            
+            # Add value labels on bars
+            for bar in bars3:
+                height = bar.get_height()
+                ax3.text(bar.get_x() + bar.get_width()/2., height + 0.5,
+                        f'{height:.1f}%', ha='center', va='bottom', fontweight='bold', fontsize=9)
+            
+            # LOW PROBABILITY PIE CHART
+            colors_low = ['#ff9999', '#ff6666', '#ff3333', '#cc0000', '#990000']
+            ax4.pie(self.low_results['Probability (%)'], labels=self.low_results['Day'], 
+                   autopct='%1.1f%%', startangle=90, colors=colors_low)
+            ax4.set_title('Distribution of Weekly LOWS by Day', 
+                         fontsize=12, fontweight='bold')
+            
+            plt.tight_layout()
+            
+            # Save the plot instead of showing it
+            filename = f"eurusd_analysis_charts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            plt.savefig(filename, dpi=300, bbox_inches='tight')
+            print(f"Charts saved to: {filename}")
+            plt.close()  # Close the figure to free memory
+            
+        except Exception as e:
+            print(f"Error creating plots: {e}")
+            print("Continuing without visualization...")
         
     def export_results(self, filename=None):
         """Export results to CSV file"""
-        if self.results is None:
+        if self.high_results is None or self.low_results is None:
             print("Results not calculated. Please run calculate_probabilities() first.")
             return
             
         if filename is None:
-            filename = f"eurusd_weekly_high_analysis_{datetime.now().strftime('%Y%m%d')}.csv"
+            filename = f"eurusd_weekly_highlow_analysis_{datetime.now().strftime('%Y%m%d')}.csv"
             
-        # Create detailed export data
-        export_data = self.results.copy()
+        # Create combined export data
+        export_data = pd.DataFrame()
+        export_data['Day'] = self.high_results['Day']
+        export_data['High_Count'] = self.high_results['Count']
+        export_data['High_Probability_%'] = self.high_results['Probability (%)']
+        export_data['Low_Count'] = self.low_results['Count']
+        export_data['Low_Probability_%'] = self.low_results['Probability (%)']
         export_data['Analysis_Period'] = f"{self.data.index[0].date()} to {self.data.index[-1].date()}"
         export_data['Total_Weeks'] = len(self.weekly_data)
         export_data['Data_Source'] = self.symbol
@@ -173,7 +252,7 @@ class WeeklyHighProbabilityAnalyzer:
 
 def main():
     # Initialize analyzer
-    analyzer = WeeklyHighProbabilityAnalyzer(period="5y")  # Use 5 years of data
+    analyzer = WeeklyHighLowProbabilityAnalyzer(period="5y")  # Use 5 years of data
     
     # Fetch and analyze data
     if analyzer.fetch_data():
