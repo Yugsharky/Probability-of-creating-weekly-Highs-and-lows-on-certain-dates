@@ -23,4 +23,5 @@ Requirements:
     - matplotlib: pip install matplotlib
 
 This svcript can be updated or edited for different currencies and the output will look something like this:
-![Uploading image.png…]()
+<img width="1848" height="729" alt="image" src="https://github.com/user-attachments/assets/65b27945-ab15-4ad9-bbf5-7daff57742aa" />
+
